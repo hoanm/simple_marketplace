@@ -3,14 +3,14 @@ use crate::{
     ContractError,
 };
 use cosmwasm_std::{
-    to_binary, Addr, DepsMut, Env, MessageInfo, QueryRequest, Response, StdResult, WasmMsg,
-    WasmQuery,
+    to_binary, BankMsg, CosmosMsg, DepsMut, Empty, Env, MessageInfo, QueryRequest, ReplyOn,
+    Response, StdResult, SubMsg, WasmMsg, WasmQuery,
 };
 use cw721::{Cw721ExecuteMsg, Cw721QueryMsg, Expiration as Cw721Expiration};
-// use cw721_base::{ExecuteMsg as Cw721ExecuteMsgBase, InstantiateMsg as Cw721InstantiateMsg};
+use cw721_base::{Extension, InstantiateMsg as Cw721InstantiateMsg};
 
 impl MarketplaceContract<'static> {
-    pub fn validate_auction_config(&self, listing_config: &ListingConfig) -> bool {
+    pub fn validate_listing_config(&self, listing_config: &ListingConfig) -> bool {
         if listing_config.price.amount.is_zero() {
             return false;
         }
@@ -29,7 +29,7 @@ impl MarketplaceContract<'static> {
         deps: DepsMut,
         env: Env,
         info: MessageInfo,
-        contract_address: Addr,
+        contract_address: String,
         token_id: String,
         listing_config: ListingConfig,
     ) -> Result<Response, ContractError> {
@@ -80,21 +80,20 @@ impl MarketplaceContract<'static> {
             }
         }
 
-        if !self.validate_auction_config(&listing_config) {
+        if !self.validate_listing_config(&listing_config) {
             return Err(ContractError::CustomError {
-                val: "Invalid auction config".to_string(),
+                val: "Invalid listing config".to_string(),
             });
         }
 
         // add a nft to listings
         let listing = Listing {
-            contract_address: contract_address.clone(),
+            contract_address: contract_address.to_string(),
             token_id: token_id.clone(),
             listing_config,
             seller: info.sender,
-            buyer: None,
         };
-        let listing_key = listing_key(&contract_address, &token_id);
+        let listing_key = listing_key(contract_address, &token_id);
 
         // we will override the listing if it already exists, so that we can update the listing config
         let new_listing = self.listings.update(
@@ -103,11 +102,10 @@ impl MarketplaceContract<'static> {
             |_old| -> Result<Listing, ContractError> { Ok(listing) },
         )?;
 
-        // println!("Listing: {:?}", _listing);
         let listing_config_str = serde_json::to_string(&new_listing.listing_config);
         match listing_config_str {
             Ok(listing_config_str) => Ok(Response::new()
-                .add_attribute("method", "list_nft")
+                .add_attribute("action", "list_nft")
                 .add_attribute("contract_address", new_listing.contract_address)
                 .add_attribute("token_id", new_listing.token_id)
                 .add_attribute("listing_config", listing_config_str)
@@ -123,12 +121,12 @@ impl MarketplaceContract<'static> {
         deps: DepsMut,
         env: Env,
         info: MessageInfo,
-        contract_address: Addr,
+        contract_address: String,
         token_id: String,
     ) -> Result<Response, ContractError> {
         // get the listing
-        let listing_key = listing_key(&contract_address, &token_id);
-        let mut listing = self.listings.load(deps.storage, listing_key.clone())?;
+        let listing_key = listing_key(contract_address, &token_id);
+        let listing = self.listings.load(deps.storage, listing_key.clone())?;
 
         // check if buyer is the same as seller
         if info.sender == listing.seller {
@@ -137,34 +135,19 @@ impl MarketplaceContract<'static> {
             });
         }
 
-        listing.buyer = Some(info.sender.clone());
-
-        // remove the listing
-        self.listings.remove(deps.storage, listing_key)?;
-
-        self.process_buy_fixed_price(deps, env, info, &listing)
-    }
-
-    fn process_buy_fixed_price(
-        self,
-        _deps: DepsMut,
-        env: Env,
-        info: MessageInfo,
-        listing: &Listing,
-    ) -> Result<Response, ContractError> {
         let price = listing.listing_config.price.clone();
-        let start_time = listing.listing_config.start_time.clone();
-        let end_time = listing.listing_config.end_time.clone();
+        let start_time = listing.listing_config.start_time;
+        let end_time = listing.listing_config.end_time;
         // check if current block is after start_time
         if start_time.is_some() && !start_time.unwrap().is_expired(&env.block) {
             return Err(ContractError::CustomError {
-                val: ("Auction not started".to_string()),
+                val: ("Listing not started".to_string()),
             });
         }
 
         if end_time.is_some() && end_time.unwrap().is_expired(&env.block) {
             return Err(ContractError::CustomError {
-                val: format!("Auction ended: {} {}", end_time.unwrap(), env.block.time),
+                val: format!("Listing ended: {} {}", end_time.unwrap(), env.block.time),
             });
         }
 
@@ -173,37 +156,30 @@ impl MarketplaceContract<'static> {
             return Err(ContractError::InsufficientFunds {});
         }
 
-        // message to transfer nft to buyer
+        // message to transfer nft to sender (buyer)
         let transfer_nft_msg = WasmMsg::Execute {
             contract_addr: listing.contract_address.to_string(),
             msg: to_binary(&Cw721ExecuteMsg::TransferNft {
-                recipient: listing.buyer.clone().unwrap().into_string(),
+                recipient: info.sender.to_string(),
                 token_id: listing.token_id.clone(),
             })?,
             funds: vec![],
         };
         let mut res = Response::new().add_message(transfer_nft_msg);
 
-        // TODO: payment
-        // let payment = price;
+        // send token to seller
+        res = res.add_message(CosmosMsg::Bank(BankMsg::Send {
+            to_address: listing.seller.to_string(),
+            amount: vec![listing.listing_config.price],
+        }));
 
-        // let payment_messages = self.payment_with_royalty(
-        //     &deps,
-        //     &listing.contract_address,
-        //     &listing.token_id,
-        //     payment,
-        //     &info.sender,
-        //     &listing.seller,
-        // );
-
-        // for payment_message in payment_messages {
-        //     res = res.add_message(payment_message);
-        // }
+        // remove the listing
+        self.listings.remove(deps.storage, listing_key)?;
 
         res = res
-            .add_attribute("method", "buy")
+            .add_attribute("action", "buy")
             .add_attribute("contract_address", listing.contract_address.to_string())
-            .add_attribute("token_id", listing.token_id.to_string())
+            .add_attribute("token_id", listing.token_id)
             .add_attribute("buyer", info.sender);
 
         Ok(res)
@@ -214,11 +190,11 @@ impl MarketplaceContract<'static> {
         deps: DepsMut,
         env: Env,
         info: MessageInfo,
-        contract_address: Addr,
+        contract_address: String,
         token_id: String,
     ) -> Result<Response, ContractError> {
         // find listing
-        let listing_key = listing_key(&contract_address, &token_id);
+        let listing_key = listing_key(contract_address.clone(), &token_id);
         let listing = self.listings.load(deps.storage, listing_key.clone())?;
 
         // if a listing is not expired, only seller can cancel
@@ -230,7 +206,7 @@ impl MarketplaceContract<'static> {
         self.listings.remove(deps.storage, listing_key)?;
 
         Ok(Response::new()
-            .add_attribute("method", "cancel")
+            .add_attribute("action", "cancel")
             .add_attribute("contract_address", contract_address)
             .add_attribute("token_id", token_id)
             .add_attribute("cancelled_at", env.block.time.to_string()))
@@ -238,58 +214,71 @@ impl MarketplaceContract<'static> {
 
     pub fn execute_create_collection(
         self,
-        _deps: DepsMut,
+        deps: DepsMut,
         _env: Env,
-        _info: MessageInfo,
-        _name: String,
-        _symbol: String,
+        info: MessageInfo,
+        name: String,
+        symbol: String,
     ) -> Result<Response, ContractError> {
-        // let msg = Cw721InstantiateMsg {
-        //     name,
-        //     symbol,
-        //     minter: info.sender.to_string(),
-        // };
-        // let res = Response::new()
-        //     .add_message(WasmMsg::Execute {
-        //         contract_addr: info.sender.to_string(),
-        //         msg: to_binary(&msg)?,
-        //         funds: vec![],
-        //     })
-        //     .add_attribute("method", "create_collection")
-        //     .add_attribute("name", name)
-        //     .add_attribute("symbol", symbol)
-        //     .add_attribute("minter", info.sender.to_string());
-        // Ok(res)
-        Ok(Response::new())
+        // load config
+        let config = self.config.load(deps.storage)?;
+        Ok(Response::new()
+            .add_submessage(SubMsg {
+                id: 1,
+                gas_limit: None,
+                msg: CosmosMsg::Wasm(WasmMsg::Instantiate {
+                    code_id: config.collection_code_id,
+                    funds: vec![],
+                    admin: Some(info.sender.to_string()),
+                    label: "create collection".to_string(),
+                    msg: to_binary(&Cw721InstantiateMsg {
+                        name: name.clone(),
+                        symbol: symbol.clone(),
+                        minter: info.sender.to_string(),
+                    })?,
+                }),
+                reply_on: ReplyOn::Success,
+            })
+            .add_attribute("method", "create_collection")
+            .add_attribute("name", name)
+            .add_attribute("symbol", symbol)
+            .add_attribute("minter", info.sender.to_string()))
     }
 
     pub fn execute_mint_nft(
         self,
-        _deps: DepsMut,
+        deps: DepsMut,
         _env: Env,
-        _info: MessageInfo,
-        _contract_address: Addr,
-        _token_id: String,
-        _token_uri: String,
+        info: MessageInfo,
+        contract_address: String,
+        token_id: String,
+        token_uri: String,
     ) -> Result<Response, ContractError> {
-        // let msg = Cw721ExecuteMsgBase::Mint {
-        //     token_id: token_id.clone(),
-        //     owner: info.sender.to_string(),
-        //     token_uri: Some(token_uri.clone()),
-        //     extension: None,
-        // };
-        // let res = Response::new()
-        //     .add_message(WasmMsg::Execute {
-        //         contract_addr: contract_address.to_string(),
-        //         msg: to_binary(&msg)?,
-        //         funds: vec![],
-        //     })
-        //     .add_attribute("method", "mint_nft")
-        //     .add_attribute("contract_address", contract_address)
-        //     .add_attribute("token_id", token_id)
-        //     .add_attribute("token_uri", token_uri)
-        //     .add_attribute("owner", info.sender.to_string());
-        // Ok(res)
-        Ok(Response::new())
+        // check if contract address and info.sender are valid
+        let collection_minter = self
+            .collections
+            .load(deps.storage, contract_address.to_string())?;
+        if collection_minter != info.sender {
+            return Err(ContractError::Unauthorized {});
+        }
+
+        // mint nft
+        let transfer_nft_msg = WasmMsg::Execute {
+            contract_addr: contract_address,
+            msg: to_binary(&cw721_base::ExecuteMsg::<Extension, Empty>::Mint {
+                token_id: token_id.clone(),
+                owner: info.sender.to_string(),
+                token_uri: Some(token_uri.clone()),
+                extension: None,
+            })?,
+            funds: vec![],
+        };
+
+        Ok(Response::new()
+            .add_message(transfer_nft_msg)
+            .add_attribute("action", "mint_nft")
+            .add_attribute("minter", info.sender)
+            .add_attribute("token_id", token_id)
+            .add_attribute("token_uri", token_uri))
     }
 }

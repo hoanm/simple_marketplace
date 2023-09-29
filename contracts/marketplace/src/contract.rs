@@ -1,11 +1,17 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
+use cosmwasm_std::{
+    to_binary, Binary, Deps, DepsMut, Empty, Env, MessageInfo, QueryRequest, Reply, Response,
+    StdResult, WasmQuery,
+};
 use cw2::set_contract_version;
+use cw_utils::parse_reply_instantiate_data;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use crate::state::{contract, Config};
+
+use cw721_base::{MinterResponse, QueryMsg as Cw721BaseQueryMsg};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:nft-marketplace";
@@ -19,7 +25,10 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     // the default value of vaura_address is equal to "aura0" and MUST BE SET before offer nft
-    let conf = Config { owner: msg.owner };
+    let conf = Config {
+        owner: msg.owner,
+        collection_code_id: msg.collection_code_id,
+    };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     contract().config.save(deps.storage, &conf)?;
 
@@ -35,7 +44,7 @@ pub fn execute(
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
-    let api = deps.api;
+    let _api = deps.api;
     match msg {
         ExecuteMsg::ListNft {
             contract_address,
@@ -45,30 +54,18 @@ pub fn execute(
             deps,
             _env,
             info,
-            api.addr_validate(&contract_address)?,
+            contract_address,
             token_id,
             listing_config,
         ),
         ExecuteMsg::Buy {
             contract_address,
             token_id,
-        } => contract().execute_buy(
-            deps,
-            _env,
-            info,
-            api.addr_validate(&contract_address)?,
-            token_id,
-        ),
+        } => contract().execute_buy(deps, _env, info, contract_address, token_id),
         ExecuteMsg::Cancel {
             contract_address,
             token_id,
-        } => contract().execute_cancel(
-            deps,
-            _env,
-            info,
-            api.addr_validate(&contract_address)?,
-            token_id,
-        ),
+        } => contract().execute_cancel(deps, _env, info, contract_address, token_id),
         ExecuteMsg::CreateCollection { name, symbol } => {
             contract().execute_create_collection(deps, _env, info, name, symbol)
         }
@@ -76,14 +73,7 @@ pub fn execute(
             contract_address,
             token_id,
             token_uri,
-        } => contract().execute_mint_nft(
-            deps,
-            _env,
-            info,
-            api.addr_validate(&contract_address)?,
-            token_id,
-            token_uri,
-        ),
+        } => contract().execute_mint_nft(deps, _env, info, contract_address, token_id, token_uri),
     }
 }
 
@@ -92,9 +82,46 @@ pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, 
     Ok(Response::default())
 }
 
+/// This just stores the result for future query
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
+    let reply = parse_reply_instantiate_data(msg).unwrap();
+
+    let collection_contract = &reply.contract_address;
+
+    // query minter from collection contract
+    // check if user is the owner of the token
+    let minter_response: StdResult<MinterResponse> =
+        deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: collection_contract.to_string(),
+            msg: to_binary(&Cw721BaseQueryMsg::<Empty>::Minter {})?,
+        }));
+    match minter_response {
+        Ok(minter) => {
+            match minter.minter {
+                Some(minter) => {
+                    // save minter to contract().collections
+                    contract().collections.save(
+                        deps.storage,
+                        collection_contract.to_string(),
+                        &minter,
+                    )?;
+                    Ok(Response::new().add_attributes(vec![
+                        ("action", "create_collection_reply"),
+                        ("collection_contract", collection_contract),
+                        ("minter", &minter),
+                    ]))
+                }
+                None => Err(ContractError::Unauthorized {}),
+            }
+        }
+        Err(_) => Err(ContractError::Unauthorized {}),
+    }
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    let api = deps.api;
+    let _api = deps.api;
     match msg {
         // get config
         QueryMsg::Config {} => to_binary(&contract().config.load(deps.storage)?),
@@ -104,17 +131,13 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             limit,
         } => to_binary(&contract().query_listings_by_contract_address(
             deps,
-            api.addr_validate(&contract_address)?,
+            contract_address,
             start_after,
             limit,
         )?),
         QueryMsg::Listing {
             contract_address,
             token_id,
-        } => to_binary(&contract().query_listing(
-            deps,
-            api.addr_validate(&contract_address)?,
-            token_id,
-        )?),
+        } => to_binary(&contract().query_listing(deps, contract_address, token_id)?),
     }
 }

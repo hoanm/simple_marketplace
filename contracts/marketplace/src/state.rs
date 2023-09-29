@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, BlockInfo, Coin};
 use cw721::Expiration;
-use cw_storage_plus::{Index, IndexList, IndexedMap, Item, MultiIndex};
+use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
 
 pub type TokenId = String;
 
@@ -14,11 +14,10 @@ pub struct ListingConfig {
 
 #[cw_serde]
 pub struct Listing {
-    pub contract_address: Addr, // contract contains the NFT
-    pub token_id: String,       // id of the NFT
+    pub contract_address: String, // contract contains the NFT
+    pub token_id: String,         // id of the NFT
     pub listing_config: ListingConfig,
     pub seller: Addr,
-    pub buyer: Option<Addr>, // buyer, will be initialized to None
 }
 
 impl Listing {
@@ -32,16 +31,16 @@ impl Listing {
 }
 
 // ListingKey is unique for all listings
-pub type ListingKey = (Addr, TokenId);
+pub type ListingKey = (String, TokenId);
 
-pub fn listing_key(contract_address: &Addr, token_id: &TokenId) -> ListingKey {
-    (contract_address.clone(), token_id.clone())
+pub fn listing_key(contract_address: String, token_id: &TokenId) -> ListingKey {
+    (contract_address, token_id.clone())
 }
 
 // listings can be indexed by contract_address
 // contract_address can point to multiple listings
 pub struct ListingIndexes<'a> {
-    pub contract_address: MultiIndex<'a, Addr, Listing, ListingKey>,
+    pub contract_address: MultiIndex<'a, String, Listing, ListingKey>,
 }
 
 impl<'a> IndexList<Listing> for ListingIndexes<'a> {
@@ -67,12 +66,14 @@ pub fn listings<'a>() -> IndexedMap<'a, ListingKey, Listing, ListingIndexes<'a>>
 #[cw_serde]
 pub struct Config {
     pub owner: Addr,
+    pub collection_code_id: u64,
 }
 
 // contract class is a wrapper for all storage items
 pub struct MarketplaceContract<'a> {
     pub config: Item<'a, Config>,
     pub listings: IndexedMap<'a, ListingKey, Listing, ListingIndexes<'a>>,
+    pub collections: Map<'a, String, String>,
 }
 
 // impl default for MarketplaceContract
@@ -81,6 +82,7 @@ impl Default for MarketplaceContract<'static> {
         MarketplaceContract {
             config: Item::<Config>::new("config"),
             listings: listings(),
+            collections: Map::new("collections"),
         }
     }
 }

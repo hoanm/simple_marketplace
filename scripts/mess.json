@@ -1,0 +1,37 @@
+{
+    "typeUrl": "/cosmwasm.wasm.v1.MsgExecuteContract",
+    "value": {
+        "sender": "aura10h87v6as4ja47pldh8wt9gshwuqce3tkchd8fl",
+        "contract": "aura18qwll06qjgkfl5s5ym4rtpz8jy2tl849ghgx402tm4w9v55wu5asn0mqhv",
+        "msg": {
+            "create_pair": {
+                "asset_infos": [
+                    {
+                        "native_token": {
+                            "denom": "uaura"
+                        }
+                    },
+                    {
+                        "token": {
+                            "contract_addr": "aura1fgfnuru6krewgt9zzu7nzercz007928uzrw2t2tl6hl3ec50me2q3ankr2"
+                        }
+                    }
+                ],
+                "requirements": {
+                    "whitelist": [
+                        "aura1sc0mc6e6a59fwv7rwjz4lyh3umycmpz80emypx"
+                    ],
+                    "first_asset_minimum": "10",
+                    "second_asset_minimum": "10"
+                },
+                "commission_rate": "0.003",
+                "lp_token_info": {
+                    "lp_token_name": "uaura_USDC_LP",
+                    "lp_token_symbol": "uaura_USDC_LP",
+                    "lp_token_decimals": 6
+                }
+            }
+        },
+        "funds": []
+    }
+}

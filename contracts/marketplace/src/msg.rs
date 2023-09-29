@@ -6,6 +6,7 @@ use crate::state::{Listing, ListingConfig};
 #[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Addr,
+    pub collection_code_id: u64,
 }
 
 #[cw_serde]
