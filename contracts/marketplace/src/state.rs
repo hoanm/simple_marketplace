@@ -91,3 +91,5 @@ impl Default for MarketplaceContract<'static> {
 pub fn contract() -> MarketplaceContract<'static> {
     MarketplaceContract::default()
 }
+
+pub const COLLECTION_ID: Item<u64> = Item::new("collection_id");

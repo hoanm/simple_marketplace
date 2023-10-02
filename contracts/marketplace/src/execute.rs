@@ -1,5 +1,5 @@
 use crate::{
-    state::{listing_key, Listing, ListingConfig, MarketplaceContract},
+    state::{listing_key, Listing, ListingConfig, MarketplaceContract, COLLECTION_ID},
     ContractError,
 };
 use cosmwasm_std::{
@@ -215,26 +215,40 @@ impl MarketplaceContract<'static> {
     pub fn execute_create_collection(
         self,
         deps: DepsMut,
-        _env: Env,
+        env: Env,
         info: MessageInfo,
         name: String,
         symbol: String,
     ) -> Result<Response, ContractError> {
         // load config
         let config = self.config.load(deps.storage)?;
+        // load collection_id
+        let mut collection_id = COLLECTION_ID.load(deps.storage)?;
+        // increment collection_id
+        collection_id += 1;
+        // save collection_id
+
+        // save a temporary collection_id to storage
+        self.collections.save(
+            deps.storage,
+            collection_id.to_string(),
+            &info.sender.to_string(),
+        )?;
+
+        COLLECTION_ID.save(deps.storage, &collection_id)?;
         Ok(Response::new()
             .add_submessage(SubMsg {
-                id: 1,
+                id: collection_id,
                 gas_limit: None,
                 msg: CosmosMsg::Wasm(WasmMsg::Instantiate {
                     code_id: config.collection_code_id,
                     funds: vec![],
-                    admin: Some(info.sender.to_string()),
+                    admin: Some(env.contract.address.to_string()),
                     label: "create collection".to_string(),
                     msg: to_binary(&Cw721InstantiateMsg {
                         name: name.clone(),
                         symbol: symbol.clone(),
-                        minter: info.sender.to_string(),
+                        minter: env.contract.address.to_string(),
                     })?,
                 }),
                 reply_on: ReplyOn::Success,

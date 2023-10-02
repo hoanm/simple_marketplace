@@ -54,11 +54,10 @@ const mainnet = {
     broadcastPollIntervalMs: 1000
 };
 
-let defaultChain = mainnet;
+let defaultChain = euphoria;
 
 
-defaultChain.deployer_mnemonic = process.env.MNEMONIC
-    || 'grief assault labor select faint leader impulse broken help garlic carry practice cricket cannon draw resist clump jar debris sentence notice poem drip benefit';
+defaultChain.deployer_mnemonic = process.env.MNEMONIC || 'grief assault labor select faint leader impulse broken help garlic carry practice cricket cannon draw resist clump jar debris sentence notice poem drip benefit';
 
 defaultChain.tester_mnemonic = 'forward picnic antenna marble various tilt problem foil arrow animal oil salon catch artist tube dry noise door cliff grain fox left loan reopen';
 

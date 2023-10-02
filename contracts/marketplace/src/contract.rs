@@ -1,17 +1,14 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Empty, Env, MessageInfo, QueryRequest, Reply, Response,
-    StdResult, WasmQuery,
+    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdResult,
 };
 use cw2::set_contract_version;
 use cw_utils::parse_reply_instantiate_data;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
-use crate::state::{contract, Config};
-
-use cw721_base::{MinterResponse, QueryMsg as Cw721BaseQueryMsg};
+use crate::state::{contract, Config, COLLECTION_ID};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:nft-marketplace";
@@ -31,6 +28,8 @@ pub fn instantiate(
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     contract().config.save(deps.storage, &conf)?;
+
+    COLLECTION_ID.save(deps.storage, &0u64)?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -85,38 +84,29 @@ pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, 
 /// This just stores the result for future query
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
-    let reply = parse_reply_instantiate_data(msg).unwrap();
+    let reply = parse_reply_instantiate_data(msg.clone()).unwrap();
 
     let collection_contract = &reply.contract_address;
 
-    // query minter from collection contract
-    // check if user is the owner of the token
-    let minter_response: StdResult<MinterResponse> =
-        deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: collection_contract.to_string(),
-            msg: to_binary(&Cw721BaseQueryMsg::<Empty>::Minter {})?,
-        }));
-    match minter_response {
-        Ok(minter) => {
-            match minter.minter {
-                Some(minter) => {
-                    // save minter to contract().collections
-                    contract().collections.save(
-                        deps.storage,
-                        collection_contract.to_string(),
-                        &minter,
-                    )?;
-                    Ok(Response::new().add_attributes(vec![
-                        ("action", "create_collection_reply"),
-                        ("collection_contract", collection_contract),
-                        ("minter", &minter),
-                    ]))
-                }
-                None => Err(ContractError::Unauthorized {}),
-            }
-        }
-        Err(_) => Err(ContractError::Unauthorized {}),
-    }
+    // load minter from contract().collections based on the msg.id
+    let minter = contract()
+        .collections
+        .load(deps.storage, msg.id.to_string())?;
+
+    // remove msg.id from contract().collections
+    contract()
+        .collections
+        .remove(deps.storage, msg.id.to_string());
+
+    // save minter to contract().collections
+    contract()
+        .collections
+        .save(deps.storage, collection_contract.to_string(), &minter)?;
+    Ok(Response::new().add_attributes(vec![
+        ("action", "create_collection_reply"),
+        ("collection_contract", collection_contract),
+        ("minter", &minter),
+    ]))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
