@@ -93,3 +93,4 @@ pub fn contract() -> MarketplaceContract<'static> {
 }
 
 pub const COLLECTION_ID: Item<u64> = Item::new("collection_id");
+pub const ALLOWED_TOKENS: Item<Vec<String>> = Item::new("allowed_tokens");
