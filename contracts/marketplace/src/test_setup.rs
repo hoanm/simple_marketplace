@@ -1,6 +1,7 @@
 #[cfg(test)]
 pub mod env {
     use cosmwasm_std::{Addr, Coin, Empty, Uint128};
+    use cw20::Cw20Coin;
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor};
 
     use crate::contract::{
@@ -76,6 +77,15 @@ pub mod env {
         let contract =
             ContractWrapper::new(MarketPlaceExecute, MarketPlaceInstantiate, MarketPlaceQuery)
                 .with_reply(MarketplaceReply);
+        Box::new(contract)
+    }
+
+    fn cw20_contract_template() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            cw20_base::contract::execute,
+            cw20_base::contract::instantiate,
+            cw20_base::contract::query,
+        );
         Box::new(contract)
     }
 
@@ -198,6 +208,41 @@ pub mod env {
         contract_info_vec.push(ContractInfo {
             contract_addr: marketplace_contract_addr.to_string(),
             contract_code_id: marketplace_contract_code_id,
+        });
+
+        // CW20 contract
+        // store the code of all contracts to the app and get the code ids
+        let cw20_contract_code_id = app.store_code(cw20_contract_template());
+
+        // create instantiate message for contract
+        let cw20_msg = cw20_base::msg::InstantiateMsg {
+            name: "CW20".to_string(),
+            symbol: "CWA".to_string(),
+            decimals: 6,
+            initial_balances: vec![Cw20Coin {
+                address: USER_2.to_string(),
+                amount: Uint128::from(1_000_000_000_000u128),
+            }],
+            mint: None,
+            marketing: None,
+        };
+
+        // instantiate contract
+        let cw20_contract_addr = app
+            .instantiate_contract(
+                cw20_contract_code_id,
+                Addr::unchecked(OWNER),
+                &cw20_msg,
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
+        // add contract info to the vector
+        contract_info_vec.push(ContractInfo {
+            contract_addr: cw20_contract_addr.to_string(),
+            contract_code_id: cw20_contract_code_id,
         });
 
         // return the app instance, the addresses and code IDs of all contracts

@@ -2,4 +2,4 @@ name = "cw-game-manager"
 
 [wasm]
 contract_dir = 'contracts'
-optimizer_version = '0.13.0'
+optimizer_version = '0.14.0'

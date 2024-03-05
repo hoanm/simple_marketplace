@@ -4,6 +4,7 @@ pub mod execute;
 pub mod msg;
 pub mod query;
 pub mod state;
+pub mod structs;
 pub mod test_setup;
 
 pub use crate::error::ContractError;

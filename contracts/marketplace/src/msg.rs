@@ -1,7 +1,7 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::Addr;
 
-use crate::state::{Listing, ListingConfig};
+use crate::structs::{AuctionConfig, Config, ListingsResponse, NftAsset, Order};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -13,19 +13,16 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     // List a NFT for sale
     ListNft {
-        contract_address: String,
-        token_id: String,
-        listing_config: ListingConfig,
+        asset: NftAsset,
+        listing_config: AuctionConfig,
     },
     // Buy a listed NFT
     Buy {
-        contract_address: String,
-        token_id: String,
+        asset: NftAsset,
     },
     // Cancel a listed NFT
     Cancel {
-        contract_address: String,
-        token_id: String,
+        asset: NftAsset,
     },
     // User creates a new collection
     CreateCollection {
@@ -38,6 +35,10 @@ pub enum ExecuteMsg {
         token_id: String,
         token_uri: String,
     },
+    // Admin allows payment token to be used for payment
+    AllowPaymentToken {
+        contract_address: Addr,
+    },
 }
 
 #[cw_serde]
@@ -47,24 +48,19 @@ pub struct MigrateMsg {}
 #[derive(QueryResponses)]
 pub enum QueryMsg {
     // list config of contract
-    #[returns(crate::state::Config)]
+    #[returns(Config)]
     Config {},
     // get listing by contract_address
     #[returns(ListingsResponse)]
     ListingsByContractAddress {
-        contract_address: String,
+        contract_address: Addr,
         start_after: Option<String>,
         limit: Option<u32>,
     },
     // get listing by contract_address and token_id
-    #[returns(Listing)]
+    #[returns(Order)]
     Listing {
-        contract_address: String,
+        contract_address: Addr,
         token_id: String,
     },
-}
-
-#[cw_serde]
-pub struct ListingsResponse {
-    pub listings: Vec<Listing>,
 }
