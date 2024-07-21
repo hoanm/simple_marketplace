@@ -1,7 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdResult,
+    to_binary, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Reply, Response,
+    StdResult,
 };
 use cw2::set_contract_version;
 use cw_utils::parse_reply_instantiate_data;
@@ -42,7 +43,7 @@ pub fn instantiate(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
@@ -52,30 +53,25 @@ pub fn execute(
             contract_address,
             token_id,
             listing_config,
-        } => contract().execute_list_nft(
-            deps,
-            _env,
-            info,
-            contract_address,
-            token_id,
-            listing_config,
-        ),
+        } => {
+            contract().execute_list_nft(deps, env, info, contract_address, token_id, listing_config)
+        }
         ExecuteMsg::Buy {
             contract_address,
             token_id,
-        } => contract().execute_buy(deps, _env, info, contract_address, token_id),
+        } => contract().execute_buy(deps, env, info, contract_address, token_id),
         ExecuteMsg::Cancel {
             contract_address,
             token_id,
-        } => contract().execute_cancel(deps, _env, info, contract_address, token_id),
+        } => contract().execute_cancel(deps, env, info, contract_address, token_id),
         ExecuteMsg::CreateCollection { name, symbol } => {
-            contract().execute_create_collection(deps, _env, info, name, symbol)
+            contract().execute_create_collection(deps, env, info, name, symbol)
         }
         ExecuteMsg::MintNft {
             contract_address,
             token_id,
             token_uri,
-        } => contract().execute_mint_nft(deps, _env, info, contract_address, token_id, token_uri),
+        } => contract().execute_mint_nft(deps, env, info, contract_address, token_id, token_uri),
         ExecuteMsg::UpdateFee { new_fee } => {
             // if the sender is not the owner, return an error
             if contract().config.load(deps.storage)?.owner != info.sender {
@@ -88,6 +84,23 @@ pub fn execute(
                 ("action", "update_fee"),
                 ("new_fee", &new_fee.to_string()),
             ]))
+        }
+        ExecuteMsg::CollectFees {} => {
+            // if the sender is not the owner, return an error
+            if contract().config.load(deps.storage)?.owner != info.sender {
+                return Err(ContractError::Unauthorized {});
+            }
+
+            // get the balances of the contract
+            let balances = deps.querier.query_all_balances(env.contract.address)?;
+
+            // send the fee to the owner
+            Ok(Response::new()
+                .add_message(CosmosMsg::Bank(BankMsg::Send {
+                    to_address: contract().config.load(deps.storage)?.owner.to_string(),
+                    amount: balances,
+                }))
+                .add_attribute("action", "collect_fees"))
         }
     }
 }

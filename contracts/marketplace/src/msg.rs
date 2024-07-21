@@ -42,6 +42,8 @@ pub enum ExecuteMsg {
     UpdateFee {
         new_fee: u64,
     },
+    // Owner can collect the fees
+    CollectFees {},
 }
 
 #[cw_serde]
