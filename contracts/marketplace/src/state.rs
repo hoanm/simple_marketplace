@@ -93,3 +93,6 @@ pub fn contract() -> MarketplaceContract<'static> {
 }
 
 pub const COLLECTION_ID: Item<u64> = Item::new("collection_id");
+
+// percentage of fee charged by the marketplace
+pub const FEE: Item<u64> = Item::new("fee");

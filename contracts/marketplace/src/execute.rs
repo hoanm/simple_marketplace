@@ -1,9 +1,9 @@
 use crate::{
-    state::{listing_key, Listing, ListingConfig, MarketplaceContract, COLLECTION_ID},
+    state::{listing_key, Listing, ListingConfig, MarketplaceContract, COLLECTION_ID, FEE},
     ContractError,
 };
 use cosmwasm_std::{
-    to_binary, BankMsg, CosmosMsg, DepsMut, Empty, Env, MessageInfo, QueryRequest, ReplyOn,
+    to_binary, BankMsg, Coin, CosmosMsg, DepsMut, Empty, Env, MessageInfo, QueryRequest, ReplyOn,
     Response, StdResult, SubMsg, WasmMsg, WasmQuery,
 };
 use cw721::{Cw721ExecuteMsg, Cw721QueryMsg, Expiration as Cw721Expiration};
@@ -167,10 +167,28 @@ impl MarketplaceContract<'static> {
         };
         let mut res = Response::new().add_message(transfer_nft_msg);
 
+        // fee of marketplace
+        let fee = FEE.load(deps.storage)?;
+        // calculate the fee amount
+        let fee_amount = listing
+            .listing_config
+            .price
+            .amount
+            .checked_multiply_ratio(fee, 1000u64)
+            .unwrap();
+
         // send token to seller
         res = res.add_message(CosmosMsg::Bank(BankMsg::Send {
             to_address: listing.seller.to_string(),
-            amount: vec![listing.listing_config.price],
+            amount: vec![Coin {
+                denom: listing.listing_config.price.denom,
+                amount: listing
+                    .listing_config
+                    .price
+                    .amount
+                    .checked_sub(fee_amount)
+                    .unwrap(),
+            }],
         }));
 
         // remove the listing

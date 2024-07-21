@@ -38,6 +38,10 @@ pub enum ExecuteMsg {
         token_id: String,
         token_uri: String,
     },
+    // Owner updates the fee
+    UpdateFee {
+        new_fee: u64,
+    },
 }
 
 #[cw_serde]

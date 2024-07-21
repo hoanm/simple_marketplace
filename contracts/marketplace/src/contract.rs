@@ -8,7 +8,7 @@ use cw_utils::parse_reply_instantiate_data;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
-use crate::state::{contract, Config, COLLECTION_ID};
+use crate::state::{contract, Config, COLLECTION_ID, FEE};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:nft-marketplace";
@@ -30,6 +30,9 @@ pub fn instantiate(
     contract().config.save(deps.storage, &conf)?;
 
     COLLECTION_ID.save(deps.storage, &0u64)?;
+
+    // Init fee to 1%
+    FEE.save(deps.storage, &10u64)?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -73,6 +76,19 @@ pub fn execute(
             token_id,
             token_uri,
         } => contract().execute_mint_nft(deps, _env, info, contract_address, token_id, token_uri),
+        ExecuteMsg::UpdateFee { new_fee } => {
+            // if the sender is not the owner, return an error
+            if contract().config.load(deps.storage)?.owner != info.sender {
+                return Err(ContractError::Unauthorized {});
+            }
+
+            FEE.save(deps.storage, &new_fee)?;
+
+            Ok(Response::new().add_attributes(vec![
+                ("action", "update_fee"),
+                ("new_fee", &new_fee.to_string()),
+            ]))
+        }
     }
 }
 
